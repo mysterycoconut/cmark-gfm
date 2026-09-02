@@ -5,30 +5,28 @@ let package = Package(
     name: "cmark-gfm",
     products: [
         .library(name: "cmark-gfm", targets: ["cmark-gfm"]),
-        .library(name: "cmark-gfm-extensions", targets: ["cmark-gfm-extensions"]),
     ],
     targets: [
         .target(
             name: "cmark-gfm",
-            path: "src",
+            path: ".",
             exclude: [
-                "scanners.re",
-                "libcmark-gfm.pc.in",
-                "config.h.in",
-                "CMakeLists.txt",
-                "main.c",
-            ]
-        ),
-        .target(
-            name: "cmark-gfm-extensions",
-            dependencies: ["cmark-gfm"],
-            path: "extensions",
-            exclude: [
-                "CMakeLists.txt",
-                "ext_scanners.re",
+                "src/scanners.re",
+                "src/libcmark-gfm.pc.in",
+                "src/config.h.in",
+                "src/cmark-gfm_version.h.in",
+                "src/CMakeLists.txt",
+                "src/main.c",
+                "src/entities.inc",
+                "src/case_fold_switch.inc",
+                "extensions/CMakeLists.txt",
+                "extensions/ext_scanners.re",
             ],
+            sources: ["src", "extensions"],
+            publicHeadersPath: "include",
             cSettings: [
-                .headerSearchPath("../src"),
+                .headerSearchPath("src"),
+                .headerSearchPath("extensions"),
             ]
         ),
     ]
