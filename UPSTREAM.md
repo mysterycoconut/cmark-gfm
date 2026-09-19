@@ -8,7 +8,7 @@ Two reasons.
 
 1. `Package.swift`, so the library can be consumed by Swift Package Manager. Upstream builds with CMake only.
 
-2. Source-position fixes. `cmark-gfm` forked from [commonmark/cmark](https://github.com/commonmark/cmark) in 2019 and has not tracked it since; several sourcepos corrections upstream cmark has made were never merged back. Both `cmark-gfm` and the fork at [swiftlang/swift-cmark](https://github.com/swiftlang/swift-cmark) are largely dormant. The fixes below are backported from cmark`, some cross-checked against the ones `swift-cmark` had already taken.
+2. Source-position fixes. `cmark-gfm` forked from [commonmark/cmark](https://github.com/commonmark/cmark) in 2019 and has not tracked it since; several sourcepos corrections upstream cmark has made were never merged back. Both `cmark-gfm` and the fork at [swiftlang/swift-cmark](https://github.com/swiftlang/swift-cmark) are largely dormant. The fixes below are backported from `cmark`, some cross-checked against the ones `swift-cmark` had already taken, and some our own.
 
 ## Changes from 0.29.0.gfm.13
 
@@ -28,6 +28,12 @@ In order of commit (with *[SHA]* signatures).
   *Example:* `[a \n  link](https://example.com)`. *[0d63fea4d3976411488678e57c9e82ce4f812563]*
 
 - **Block end lines** (`src/blocks.c`, `finalize` and `add_line`) — `finalize` assumed blocks are closed from a later line and set `end_line` to `parser->line_number - 1`. HTML blocks of types 1–5 end on a condition inside a line and are finalized while still on it, so they reported `(0, 0)`. `swift-cmark`'s guard on that branch is taken here, but it relies on `end_line` holding the last line the block consumed, and upstream only ever sets it in `add_child`. Setting it in `add_line` as well completes the fix. *Example:* `<style>\np{color:red;}\n</style>` reported `(1,1)-(2,13)` for a three-line block; `<!DOCTYPE html>` reported `(1,1)-(0,0)`. *[66c52a391df961e3a7cdb10e7dd7d355ebcffb20]*
+
+- **Backslash hard break line tracking** (`src/inlines.c`, `handle_backslash`) — the linebreak branch calls `skip_line_end`, which only advances `subj->pos`. Unlike `handle_newline`, it never advances `subj->line` or resets `column_offset`, so everything after a backslash hard break keeps measuring from the line it was on before the break. *Example:* `foo\` followed by `bar` on the next line reported `bar` on line 1. *[SHA]*
+
+- **Raw HTML delimiter width** (`src/inlines.c`, `handle_pointy_brace`) — called `adjust_subj_node_newlines` with `extra=1`, the value `handle_backticks` uses to exclude a code span's closing backticks from its end position. Raw HTML's own position is delimiter-inclusive, so the same `extra` wrongly excluded its closing `>` too. *Example:* `<a href="foo\nbar">` reported its end one character short of the `>`. *[SHA]*
+
+- **Multi-line construct end column missing block_offset** (`src/inlines.c`, `adjust_subj_node_newlines`) — `end_column` was set to `since_newline` directly, skipping the `+ subj->block_offset` every other column assignment in this file includes. Invisible at the top level, where `block_offset` is 0; wrong by the container's prefix width for a code span or HTML tag nested inside a blockquote or list item. *Example:* `` `bl\nah` `` spanning two lines inside `> ` reported its closing backtick two columns short. *[SHA]*
 
 ## Not taken from swift-cmark
 

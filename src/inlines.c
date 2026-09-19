@@ -299,7 +299,7 @@ static void adjust_subj_node_newlines(subject *subj, cmark_node *node, int match
   if (newlines) {
     subj->line += newlines;
     node->end_line += newlines;
-    node->end_column = since_newline;
+    node->end_column = since_newline + subj->block_offset;
     subj->column_offset = -subj->pos + since_newline + extra;
   }
 }
@@ -843,6 +843,8 @@ static cmark_node *handle_backslash(cmark_parser *parser, subject *subj) {
     advance(subj);
     return make_str(subj, subj->pos - 2, subj->pos - 1, cmark_chunk_dup(&subj->input, subj->pos - 1, 1));
   } else if (!is_eof(subj) && skip_line_end(subj)) {
+    ++subj->line;
+    subj->column_offset = -subj->pos;
     return make_linebreak(subj->mem);
   } else {
     return make_str(subj, subj->pos - 1, subj->pos - 1, cmark_chunk_literal("\\"));
@@ -997,7 +999,7 @@ static cmark_node *handle_pointy_brace(subject *subj, int options) {
     contents = cmark_chunk_dup(&subj->input, subj->pos - 1, matchlen + 1);
     subj->pos += matchlen;
     cmark_node *node = make_raw_html(subj, subj->pos - matchlen - 1, subj->pos - 1, contents);
-    adjust_subj_node_newlines(subj, node, matchlen, 1, options);
+    adjust_subj_node_newlines(subj, node, matchlen, 0, options);
     return node;
   }
 
@@ -1007,7 +1009,7 @@ static cmark_node *handle_pointy_brace(subject *subj, int options) {
       contents = cmark_chunk_dup(&subj->input, subj->pos - 1, matchlen + 1);
       subj->pos += matchlen;
       cmark_node *node = make_raw_html(subj, subj->pos - matchlen - 1, subj->pos - 1, contents);
-      adjust_subj_node_newlines(subj, node, matchlen, 1, options);
+      adjust_subj_node_newlines(subj, node, matchlen, 0, options);
       return node;
     }
   }
