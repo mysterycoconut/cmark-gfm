@@ -219,6 +219,8 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
   cmark_strbuf_put(&node->content, ch->data + parser->offset,
                    ch->len - parser->offset);
   node->end_line = parser->line_number;
+  parser->last_added_line_offset = parser->offset;
+  parser->line_length_before_last_added = parser->last_line_length;
 }
 
 static void remove_trailing_blank_lines(cmark_strbuf *ln) {

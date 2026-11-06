@@ -41,6 +41,12 @@ struct cmark_parser {
   cmark_strbuf curline;
   /* See the documentation for cmark_parser_get_last_line_length() in cmark.h */
   bufsize_t last_line_length;
+  /* Where the text of the last line added to a block starts, and the length of
+     the line before it, both as add_line found them. The table extension takes
+     a header row off the end of a paragraph one line later, and needs them to
+     place the table on that line and end the paragraph on the line before. */
+  bufsize_t last_added_line_offset;
+  bufsize_t line_length_before_last_added;
   /* FIXME: not sure about the difference with curline */
   cmark_strbuf linebuf;
   /* Options set by the user, see the Options section in cmark.h */
