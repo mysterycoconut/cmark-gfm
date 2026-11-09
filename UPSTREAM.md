@@ -41,9 +41,13 @@ In order of commit (with *[SHA]* signatures).
 
 - **Link reference definitions above a table header** (same change as above) — the paragraph copy never went through `finalize`, so link reference definitions at its start were never taken off: they rendered as text, and links using them didn't resolve. It also unescaped `\|` in the copy's text, which only cells need, so every column after one was a byte short (output unaffected, since `\|` in a paragraph is an escape either way). Both went with the copy. *Example:* `[ref]: /url` and `foo` above `| a |` rendered `<p>[ref]: /url\nfoo</p>`, and `[x][ref]` later in the document stayed text. *[SHA]*
 
+### Thread safety
+
+- **Extension characters kept per parser** (`src/inlines.c`, `src/inlines.h`, `src/blocks.c`, `src/parser.h`) — the characters an inline extension starts with (`~` for strikethrough, `:` and `w` for autolinks) were added to the file-level `SPECIAL_CHARS` and `SKIP_CHARS` tables at the start of every parse's inline phase and removed at its end (`cmark_manage_extensions_special_characters`, called from `process_inlines`). Two parsers running at once on different threads added and removed them under each other, so a parse could lose them partway through and miss strikethrough and autolinks. Now each parser holds its own two tables (`special_chars`, `skip_chars`) for its extensions' characters, and `SPECIAL_CHARS` holds only the characters inline parsing always stops at, as a constant. `subject_find_special_char`, `scan_delims` and `handle_delim` take the parser to read them. `cmark_manage_extensions_special_characters` keeps its public signature. Same idea as `swift-cmark`'s, smaller: it only adds the extensions' characters to the parser, so there's no copying of defaults and nothing to allocate. Output is unchanged for one parser at a time. *Example:* four threads each parsing `a ~~b~~ c www.example.com` 20,000 times gave the wrong HTML 23,759 times out of 80,000; now none. *[SHA]*
+
 ## Not taken from swift-cmark
 
-`swift-cmark` carries feature work for `swift-markdown` that this fork deliberately omits: the `^[...]` attribute syntax and `CMARK_NODE_ATTRIBUTE`, `CMARK_OPT_PRESERVE_WHITESPACE`, per-parser character tables, `bracket_type` replacing `bool image`, and `node->backtick_count`. These change parsing behaviour or the public node structure.
+`swift-cmark` carries feature work for `swift-markdown` that this fork deliberately omits: the `^[...]` attribute syntax and `CMARK_NODE_ATTRIBUTE`, `CMARK_OPT_PRESERVE_WHITESPACE`, `bracket_type` replacing `bool image`, and `node->backtick_count`. These change parsing behaviour or the public node structure. Its per-parser character tables were taken in a smaller form (see *Thread safety* above).
 
 ## Known divergences from the GFM spec
 
