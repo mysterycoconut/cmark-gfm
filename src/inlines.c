@@ -1328,6 +1328,11 @@ match:
   inl->start_column = opener->inl_text->start_column;
   inl->end_line = subj->line;
   inl->end_column = subj->pos + subj->column_offset + subj->block_offset;
+  // The destination, title or reference label after `]` was read without
+  // handle_newline, so count the line endings in it here. extra=0: the link's
+  // end includes its closing `)` or `]`.
+  adjust_subj_node_newlines(subj, inl, subj->pos - after_link_text_pos, 0,
+                            parser->options);
   cmark_node_insert_before(opener->inl_text, inl);
   // Add link text:
   tmp = opener->inl_text->next;
