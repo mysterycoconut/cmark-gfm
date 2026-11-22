@@ -402,3 +402,13 @@ garbage on the same line must not be treated as a title.
 <p>&quot;The title&quot; garbage
 <a href="/bla">bla</a></p>
 ````````````````````````````````
+
+A pointy-bracket link destination may not contain a line ending, even
+when the newline is preceded by a backslash.
+```````````````````````````````` example
+[a](<b\
+c>)
+.
+<p>[a](&lt;b<br />
+c&gt;)</p>
+````````````````````````````````
