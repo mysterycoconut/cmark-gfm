@@ -373,3 +373,21 @@ Issue #424 - emphasis before links
 .
 <p><em>text</em> <a href="#section">link</a></p>
 ````````````````````````````````
+
+The leading spaces of a lazy continuation line are not part of the
+paragraph content, as for any other paragraph line.
+
+```````````````````````````````` example
+> `a
+ b`
+
+- `c
+ d`
+.
+<blockquote>
+<p><code>a b</code></p>
+</blockquote>
+<ul>
+<li><code>c d</code></li>
+</ul>
+````````````````````````````````
