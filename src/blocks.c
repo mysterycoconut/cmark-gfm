@@ -204,8 +204,19 @@ static CMARK_INLINE bool contains_inlines(cmark_node *node) {
           node->type == CMARK_NODE_HEADING);
 }
 
+// Record where a line added to `node` starts in its source line, for its inlines' columns
+// (`cmark_node.line_starts`).
+static void add_line_start(cmark_node *node, bufsize_t line_start, cmark_mem *mem) {
+  if (node->line_count == node->line_capacity) {
+    node->line_capacity = node->line_capacity ? node->line_capacity * 2 : 8;
+    node->line_starts = (bufsize_t *)mem->realloc(
+        node->line_starts, node->line_capacity * sizeof(bufsize_t));
+  }
+  node->line_starts[node->line_count++] = line_start;
+}
+
 static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
-  int chars_to_tab;
+  int chars_to_tab = 0;
   int i;
   assert(node->flags & CMARK_NODE__OPEN);
   if (parser->partially_consumed_tab) {
@@ -216,6 +227,10 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
       cmark_strbuf_putc(&node->content, ' ');
     }
   }
+  // The spaces standing in for the rest of a tab come before the line's text, so its start is
+  // counted back from where the text is by as many.
+  if (S_type(node) == CMARK_NODE_PARAGRAPH || S_type(node) == CMARK_NODE_HEADING)
+    add_line_start(node, parser->offset - chars_to_tab, parser->mem);
   cmark_strbuf_put(&node->content, ch->data + parser->offset,
                    ch->len - parser->offset);
   node->end_line = parser->line_number;
@@ -279,7 +294,18 @@ static bool resolve_reference_link_definitions(
     chunk.data += pos;
     chunk.len -= pos;
   }
-  cmark_strbuf_drop(node_content, (node_content->size - chunk.len));
+  bufsize_t dropped = node_content->size - chunk.len;
+  // Each definition ends with its line, so the lines taken off are as many as the line endings
+  // in them, and their starts go with them.
+  bufsize_t lines = 0;
+  for (bufsize_t i = 0; i < dropped; i++) {
+    if (node_content->ptr[i] == '\n')
+      lines++;
+  }
+  memmove(b->line_starts, b->line_starts + lines,
+          (b->line_count - lines) * sizeof(bufsize_t));
+  b->line_count -= lines;
+  cmark_strbuf_drop(node_content, dropped);
   return !is_blank(&b->content, 0);
 }
 

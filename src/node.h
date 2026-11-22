@@ -63,6 +63,17 @@ typedef uint16_t cmark_node_internal_flags;
 struct cmark_node {
   cmark_strbuf content;
 
+  /**
+   * For a paragraph or heading, whose inlines are parsed from `content`: where each of its lines
+   * starts in its source line, as a byte offset, in order, `line_count` of them. Recorded as
+   * lines are added (`add_line` in blocks.c), and read by the inline parser so that columns on
+   * every line are measured from that line's own start, not the block's first line. Freed once
+   * the block's inlines are parsed. A node that never had lines added has none.
+   */
+  bufsize_t *line_starts;
+  bufsize_t line_count;
+  bufsize_t line_capacity;
+
   struct cmark_node *next;
   struct cmark_node *prev;
   struct cmark_node *parent;

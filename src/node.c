@@ -179,6 +179,7 @@ static void S_free_nodes(cmark_node *e) {
   cmark_node *next;
   while (e != NULL) {
     cmark_strbuf_free(&e->content);
+    NODE_MEM(e)->free(e->line_starts);
 
     if (e->user_data && e->user_data_free_func)
       e->user_data_free_func(NODE_MEM(e), e->user_data);

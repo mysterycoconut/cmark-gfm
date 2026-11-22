@@ -57,6 +57,9 @@ typedef struct subject{
   bufsize_t pos;
   int block_offset;
   int column_offset;
+  // The block whose inlines these are, for where each of its lines starts
+  // (`cmark_node.line_starts`). Set by `cmark_parse_inlines`.
+  cmark_node *block;
   cmark_map *refmap;
   delimiter *last_delim;
   bracket *last_bracket;
@@ -190,6 +193,7 @@ static void subject_from_buf(cmark_mem *mem, int line_number, int block_offset, 
   e->pos = 0;
   e->block_offset = block_offset;
   e->column_offset = 0;
+  e->block = NULL;
   e->refmap = refmap;
   e->last_delim = NULL;
   e->last_bracket = NULL;
@@ -198,6 +202,22 @@ static void subject_from_buf(cmark_mem *mem, int line_number, int block_offset, 
   }
   e->scanned_for_backticks = false;
   e->no_link_openers = true;
+}
+
+// How much further the text of the line `subj` is on starts than the block's first line does:
+// what columns on that line need besides `block_offset`. Zero for a block that keeps no line
+// starts, like a table cell, whose text is a single line.
+static int line_start_shift(subject *subj) {
+  bufsize_t index = subj->line - subj->block->start_line;
+  if (index >= subj->block->line_count)
+    return 0;
+  return subj->block->line_starts[index] - subj->block_offset;
+}
+
+// A line of the block starts at `line_pos` in `subj`'s input, on `subj->line`: columns on it are
+// measured from where its text starts in the source line.
+static void start_line(subject *subj, bufsize_t line_pos) {
+  subj->column_offset = -line_pos + line_start_shift(subj);
 }
 
 static CMARK_INLINE int isbacktick(int c) { return (c == '`'); }
@@ -297,8 +317,8 @@ static void adjust_subj_node_newlines(subject *subj, cmark_node *node, int match
   if (newlines) {
     subj->line += newlines;
     node->end_line += newlines;
-    node->end_column = since_newline + subj->block_offset;
-    subj->column_offset = -subj->pos + since_newline + extra;
+    start_line(subj, subj->pos - since_newline - extra);
+    node->end_column = since_newline + subj->block_offset + line_start_shift(subj);
   }
 }
 
@@ -843,7 +863,7 @@ static cmark_node *handle_backslash(cmark_parser *parser, subject *subj) {
     return make_str(subj, subj->pos - 2, subj->pos - 1, cmark_chunk_dup(&subj->input, subj->pos - 1, 1));
   } else if (!is_eof(subj) && skip_line_end(subj)) {
     ++subj->line;
-    subj->column_offset = -subj->pos;
+    start_line(subj, subj->pos);
     return make_linebreak(subj->mem);
   } else {
     return make_str(subj, subj->pos - 1, subj->pos - 1, cmark_chunk_literal("\\"));
@@ -1371,7 +1391,7 @@ static cmark_node *handle_newline(subject *subj) {
     advance(subj);
   }
   ++subj->line;
-  subj->column_offset = -subj->pos;
+  start_line(subj, subj->pos);
   // skip spaces at beginning of line
   skip_spaces(subj);
   if (nlpos > 1 && peek_at(subj, nlpos - 1) == ' ' &&
@@ -1552,6 +1572,8 @@ void cmark_parse_inlines(cmark_parser *parser,
   subject subj;
   cmark_chunk content = {parent->content.ptr, parent->content.size, 0};
   subject_from_buf(parser->mem, parent->start_line, parent->start_column - 1 + parent->internal_offset, &subj, &content, refmap);
+  subj.block = parent;
+  start_line(&subj, 0);
   cmark_chunk_rtrim(&subj.input);
 
   while (!is_eof(&subj) && parse_inline(parser, &subj, parent, options))
@@ -1565,6 +1587,10 @@ void cmark_parse_inlines(cmark_parser *parser,
   while (subj.last_bracket) {
     pop_bracket(&subj);
   }
+  // Every position is set: the line starts aren't needed any more.
+  parser->mem->free(parent->line_starts);
+  parent->line_starts = NULL;
+  parent->line_count = parent->line_capacity = 0;
 }
 
 // Parse zero or more space characters, including at most one newline.
