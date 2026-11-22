@@ -212,6 +212,10 @@ static void add_line_start(cmark_node *node, bufsize_t line_start, cmark_mem *me
     node->line_starts = (bufsize_t *)mem->realloc(
         node->line_starts, node->line_capacity * sizeof(bufsize_t));
   }
+  // A paragraph left with no lines by the definitions taken off it starts where its next line
+  // does (`resolve_reference_link_definitions`).
+  if (node->line_count == 0 && S_type(node) == CMARK_NODE_PARAGRAPH)
+    node->start_column = line_start + 1;
   node->line_starts[node->line_count++] = line_start;
 }
 
@@ -305,6 +309,13 @@ static bool resolve_reference_link_definitions(
   memmove(b->line_starts, b->line_starts + lines,
           (b->line_count - lines) * sizeof(bufsize_t));
   b->line_count -= lines;
+  // The block now starts on the line after the definitions, where that line's text starts. With
+  // no line left, `add_line_start` takes the column from the next line added.
+  if (lines > 0) {
+    b->start_line += lines;
+    if (b->line_count > 0)
+      b->start_column = b->line_starts[0] + 1;
+  }
   cmark_strbuf_drop(node_content, dropped);
   return !is_blank(&b->content, 0);
 }
