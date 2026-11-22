@@ -412,3 +412,21 @@ c>)
 <p>[a](&lt;b<br />
 c&gt;)</p>
 ````````````````````````````````
+
+Issue #619: `---` after a link reference definition is a thematic
+break, not a paragraph.
+```````````````````````````````` example
+[f]:r
+---
+.
+<hr />
+````````````````````````````````
+
+```````````````````````````````` example
+[foo]: /url
+---
+[foo]
+.
+<hr />
+<p><a href="/url">foo</a></p>
+````````````````````````````````
