@@ -337,8 +337,10 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
     b->end_line = parser->line_number;
     b->end_column = parser->last_line_length;
   } else if (S_type(b) == CMARK_NODE_DOCUMENT ||
-             (S_type(b) == CMARK_NODE_CODE_BLOCK && b->as.code.fenced) ||
-             (S_type(b) == CMARK_NODE_HEADING && b->as.heading.setext) ||
+             // Finalized on the line it ends on: an HTML block's end condition, or a fenced code
+             // block's closing fence (`parse_code_block_prefix`). Every other block is finalized
+             // from the line after its last, a setext heading included, since nothing closes it
+             // on its underline.
              (parser->line_number - 1 < b->end_line)) {
     b->end_line = parser->line_number;
     b->end_column = parser->curline.size;
@@ -1032,6 +1034,8 @@ static bool parse_code_block_prefix(cmark_parser *parser, cmark_chunk *input,
       // the end of a line, we can stop processing it:
       *should_continue = false;
       S_advance_offset(parser, input, matched, false);
+      // The fence is the block's last line (`finalize`).
+      container->end_line = parser->line_number;
       parser->current = finalize(parser, container);
     } else {
       // skip opt. spaces of fence parser->offset
