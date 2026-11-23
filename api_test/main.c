@@ -1129,6 +1129,70 @@ static void ref_source_pos(test_batch_runner *runner) {
   cmark_node_free(doc);
 }
 
+// A definition's three ranges, as `cmark_node_get_reference_definitions` gives them, written
+// like a sourcepos: "label 1:2-1:2, destination 1:6-1:7, title 0:0-0:0".
+static void S_describe_definition(const cmark_reference_definition *d, char *out, size_t size) {
+  snprintf(out, size, "label %d:%d-%d:%d, destination %d:%d-%d:%d, title %d:%d-%d:%d",
+           d->label.start_line, d->label.start_column, d->label.end_line, d->label.end_column,
+           d->destination.start_line, d->destination.start_column,
+           d->destination.end_line, d->destination.end_column,
+           d->title.start_line, d->title.start_column, d->title.end_line, d->title.end_column);
+}
+
+// Parses `markdown` and checks its definitions against `expected`, `count` of them, in order.
+static void S_check_definitions(test_batch_runner *runner, const char *markdown,
+                                const char **expected, size_t count) {
+  cmark_node *doc = cmark_parse_document(markdown, strlen(markdown),
+                                         CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
+  size_t found = 0;
+  const cmark_reference_definition *defs = cmark_node_get_reference_definitions(doc, &found);
+  INT_EQ(runner, (int)found, (int)count, "definitions in %s", markdown);
+  for (size_t i = 0; i < found && i < count; i++) {
+    char got[160];
+    S_describe_definition(&defs[i], got, sizeof(got));
+    STR_EQ(runner, got, expected[i], "definition %d in %s", (int)i, markdown);
+  }
+  cmark_node_free(doc);
+}
+
+static void reference_definitions(test_batch_runner *runner) {
+  // In order, a label defined again included, a title, a destination on its own line in
+  // pointy brackets.
+  static const char *plain[] = {
+    "label 1:2-1:2, destination 1:6-1:7, title 1:9-1:11",
+    "label 3:2-3:2, destination 4:3-4:5, title 0:0-0:0",
+    "label 5:2-5:2, destination 5:6-5:7, title 0:0-0:0",
+  };
+  S_check_definitions(runner, "[a]: /u \"t\"\n\n[b]:\n  <v>\n[a]: /w\n", plain, 3);
+
+  // In a block quote, the second one's destination and title on a lazy line, with text after.
+  static const char *quoted[] = {
+    "label 1:4-1:4, destination 1:8-1:9, title 0:0-0:0",
+    "label 2:4-2:4, destination 3:1-3:2, title 3:4-3:6",
+  };
+  S_check_definitions(runner, "> [c]: /x\n> [d]:\n/y 'z'\ntext\n", quoted, 2);
+
+  // In a list item, above a setext heading's text, and a label across a line ending.
+  static const char *nested[] = {
+    "label 1:4-1:4, destination 1:8-1:9, title 0:0-0:0",
+    "label 4:2-5:1, destination 5:5-5:6, title 0:0-0:0",
+  };
+  S_check_definitions(runner, "- [e]: /e\n  Head\n  ===\n[f\ng]: /f\n", nested, 2);
+
+  // Not recorded without CMARK_OPT_SOURCEPOS, and only a document has any.
+  static const char markdown[] = "[h]: /h\n\ntext\n";
+  cmark_node *doc = cmark_parse_document(markdown, sizeof(markdown) - 1, CMARK_OPT_DEFAULT);
+  size_t count = 1;
+  OK(runner, cmark_node_get_reference_definitions(doc, &count) == NULL && count == 0,
+     "no definitions without CMARK_OPT_SOURCEPOS");
+  cmark_node_free(doc);
+  doc = cmark_parse_document(markdown, sizeof(markdown) - 1, CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
+  count = 1;
+  OK(runner, cmark_node_get_reference_definitions(cmark_node_first_child(doc), &count) == NULL && count == 0,
+     "no definitions on a node that isn't a document");
+  cmark_node_free(doc);
+}
+
 int main() {
   int retval;
   test_batch_runner *runner = test_batch_runner_new();
@@ -1160,6 +1224,7 @@ int main() {
   source_pos(runner);
   source_pos_inlines(runner);
   ref_source_pos(runner);
+  reference_definitions(runner);
 
   test_print_summary(runner);
   retval = test_ok(runner) ? 0 : 1;

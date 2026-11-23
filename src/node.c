@@ -169,6 +169,9 @@ static void free_node_as(cmark_node *node) {
     cmark_chunk_free(NODE_MEM(node), &node->as.custom.on_enter);
     cmark_chunk_free(NODE_MEM(node), &node->as.custom.on_exit);
       break;
+    case CMARK_NODE_DOCUMENT:
+    NODE_MEM(node)->free(node->as.document.items);
+      break;
     default:
       break;
     }
@@ -823,6 +826,16 @@ int cmark_node_get_end_column(cmark_node *node) {
     return 0;
   }
   return node->end_column;
+}
+
+const cmark_reference_definition *
+cmark_node_get_reference_definitions(cmark_node *node, size_t *count) {
+  if (node == NULL || node->type != CMARK_NODE_DOCUMENT || node->as.document.count == 0) {
+    *count = 0;
+    return NULL;
+  }
+  *count = node->as.document.count;
+  return node->as.document.items;
 }
 
 // Unlink a node without adjusting its next, prev, and parent pointers.

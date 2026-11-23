@@ -1612,7 +1612,8 @@ static void spnl(subject *subj) {
 // Return 0 if no reference found, otherwise position of subject
 // after reference is parsed.
 bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
-                                       cmark_map *refmap) {
+                                       cmark_map *refmap,
+                                       cmark_reference_offsets *offsets) {
   subject subj;
 
   cmark_chunk lab;
@@ -1621,12 +1622,14 @@ bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
 
   bufsize_t matchlen = 0;
   bufsize_t beforetitle;
+  bufsize_t label_end, destination_start, title_start = 0;
 
   subject_from_buf(mem, -1, 0, &subj, input, NULL);
 
   // parse label:
   if (!link_label(&subj, &lab) || lab.len == 0)
     return 0;
+  label_end = subj.pos - 1; // at the closing bracket
 
   // colon:
   if (peek_char(&subj) == ':') {
@@ -1637,6 +1640,7 @@ bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
 
   // parse link url:
   spnl(&subj);
+  destination_start = subj.pos;
   if ((matchlen = manual_scan_link_url(&subj.input, subj.pos, &url)) > -1) {
     subj.pos += matchlen;
   } else {
@@ -1648,6 +1652,7 @@ bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
   spnl(&subj);
   matchlen = subj.pos == beforetitle ? 0 : scan_link_title(&subj.input, subj.pos);
   if (matchlen) {
+    title_start = subj.pos;
     title = cmark_chunk_dup(&subj.input, subj.pos, matchlen);
     subj.pos += matchlen;
   } else {
@@ -1668,9 +1673,18 @@ bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
       // followed by trailing garbage instead of the end of the line), so
       // the reference has no title after all.
       title = cmark_chunk_literal("");
+      matchlen = 0;
     } else {
       return 0;
     }
+  }
+  if (offsets) {
+    offsets->label_start = 1; // just past the opening bracket `input` starts with
+    offsets->label_end = label_end;
+    offsets->destination_start = destination_start;
+    offsets->destination_end = beforetitle;
+    offsets->title_start = matchlen ? title_start : beforetitle;
+    offsets->title_end = matchlen ? title_start + matchlen : beforetitle;
   }
   // insert reference into refmap
   cmark_reference_create(refmap, &lab, &url, &title);

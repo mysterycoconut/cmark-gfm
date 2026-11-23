@@ -505,6 +505,38 @@ CMARK_GFM_EXPORT int cmark_node_get_end_line(cmark_node *node);
  */
 CMARK_GFM_EXPORT int cmark_node_get_end_column(cmark_node *node);
 
+/** A stretch of the source, given as a node's position is: lines and byte
+ * columns counted from 1, and the end column that of the stretch's last byte.
+ * All four are 0 when there is no such stretch.
+ */
+typedef struct cmark_source_range {
+  int start_line;
+  int start_column;
+  int end_line;
+  int end_column;
+} cmark_source_range;
+
+/** A link reference definition, which the parser takes off the start of a
+ * paragraph and keeps no node for: where its parts are in the source.
+ */
+typedef struct cmark_reference_definition {
+  /** Between the brackets. */
+  cmark_source_range label;
+  /** As written, with its pointy brackets if it has them. */
+  cmark_source_range destination;
+  /** As written, with its quotes or parentheses; all 0 when there is none. */
+  cmark_source_range title;
+} cmark_reference_definition;
+
+/** The link reference definitions of 'node', a document, in the order they
+ * appear, those whose label was already defined included, and sets 'count'
+ * to how many there are. They are recorded only when the document is parsed
+ * with CMARK_OPT_SOURCEPOS, and only a document has any: otherwise returns
+ * NULL and sets 'count' to 0. Valid as long as the document is.
+ */
+CMARK_GFM_EXPORT const cmark_reference_definition *
+cmark_node_get_reference_definitions(cmark_node *node, size_t *count);
+
 /**
  * ## Tree Manipulation
  */

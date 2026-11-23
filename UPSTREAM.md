@@ -4,11 +4,13 @@ Fork of [github/cmark-gfm](https://github.com/github/cmark-gfm) at `0.29.0.gfm.1
 
 ## Why this fork exists
 
-Two reasons.
+Three reasons.
 
 1. `Package.swift`, so the library can be consumed by Swift Package Manager. Upstream builds with CMake only.
 
 2. Source-position fixes. `cmark-gfm` forked from [commonmark/cmark](https://github.com/commonmark/cmark) in 2019 and has not tracked it since; several sourcepos corrections upstream cmark has made were never merged back. Both `cmark-gfm` and the fork at [swiftlang/swift-cmark](https://github.com/swiftlang/swift-cmark) are largely dormant. The fixes below are backported from `cmark`, some cross-checked against the ones `swift-cmark` had already taken, and some our own.
+
+3. Records for editors. The parser finds things it keeps no node for, like link reference definitions, and an editor that has to find them again on its own can disagree with it. The fork records them on the document, without changing any output (see *Records for editors* below).
 
 ## Changes from 0.29.0.gfm.13
 
@@ -62,6 +64,12 @@ In order of commit (with *[SHA]* signatures).
 ### Thread safety
 
 - **Extension characters kept per parser** (`src/inlines.c`, `src/inlines.h`, `src/blocks.c`, `src/parser.h`) — the characters an inline extension starts with (`~` for strikethrough, `:` and `w` for autolinks) were added to the file-level `SPECIAL_CHARS` and `SKIP_CHARS` tables at the start of every parse's inline phase and removed at its end (`cmark_manage_extensions_special_characters`, called from `process_inlines`). Two parsers running at once on different threads added and removed them under each other, so a parse could lose them partway through and miss strikethrough and autolinks. Now each parser holds its own two tables (`special_chars`, `skip_chars`) for its extensions' characters, and `SPECIAL_CHARS` holds only the characters inline parsing always stops at, as a constant. `subject_find_special_char`, `scan_delims` and `handle_delim` take the parser to read them. `cmark_manage_extensions_special_characters` keeps its public signature. Same idea as `swift-cmark`'s, smaller: it only adds the extensions' characters to the parser, so there's no copying of defaults and nothing to allocate. Output is unchanged for one parser at a time. *Example:* four threads each parsing `a ~~b~~ c www.example.com` 20,000 times gave the wrong HTML 23,759 times out of 80,000; now none. *[cf8bc06ad3f797003c211a565bc90fe81020a402]*
+
+### Records for editors
+
+Additions to the public API that give an editor what the parser finds and keeps no node for. They're recorded only when parsing with `CMARK_OPT_SOURCEPOS`, and change no output.
+
+- **Link reference definitions** (`include/cmark-gfm.h`, `cmark_node_get_reference_definitions`, `cmark_reference_definition` and `cmark_source_range`; `src/blocks.c`, `resolve_reference_link_definitions`; `src/inlines.c`, `cmark_parse_reference_inline`; `src/node.h` and `src/node.c`) — a definition is taken off the start of its paragraph and leaves no node, so an editor that styles one, or points at a broken one, had to find it again itself, and could disagree with the parser: a definition in a block quote or list item, a definition-shaped line inside a code block or continuing a paragraph. Now the document holds every definition the parser took, in order, a label defined again included, with where its label, destination and title are, as `sourcepos` gives positions. `cmark_parse_reference_inline` reports where the parts are, and `resolve_reference_link_definitions` turns them into source positions with the paragraph's line starts (see *Columns on a block's later lines*) before taking the definitions off. They're kept on the document node (`as.document`) and freed with it. *Example:* `> [a]: /u` then `> [b]: /v` gives `a` at `1:4-1:4` with its destination at `1:8-1:9`, and `b` at `2:4-2:4`. *[SHA]*
 
 ## Not taken from swift-cmark
 

@@ -284,6 +284,58 @@ static bool S_ends_with_blank_line(cmark_node *node) {
   }
 }
 
+// A place in the text of a paragraph, and the line it's on. The definitions taken off a
+// paragraph's start are placed in the source in the order they're read, so one walk forward
+// through the text places all of them, however many there are.
+typedef struct {
+  cmark_node *block;
+  bufsize_t offset;      // how far into the text the walk is
+  bufsize_t line;        // which of the text's lines that is, from 0
+  bufsize_t line_offset; // where that line starts in the text
+} text_cursor;
+
+// Where `offset` in the text is in the source, as a line and a byte column counted from 1: the
+// line from the line endings before it, the column from where that line's text starts in the
+// source (`line_starts`). `offset` can't be before where the cursor is.
+static void source_position(text_cursor *cursor, bufsize_t offset, int *line, int *column) {
+  cmark_node *b = cursor->block;
+  for (; cursor->offset < offset; cursor->offset++) {
+    if (b->content.ptr[cursor->offset] == '\n') {
+      cursor->line++;
+      cursor->line_offset = cursor->offset + 1;
+    }
+  }
+  *line = b->start_line + cursor->line;
+  *column = (cursor->line < b->line_count ? b->line_starts[cursor->line] : 0) +
+            (offset - cursor->line_offset) + 1;
+}
+
+// The range of the text from `start` to just before `end`, in the source. All 0 when it's empty.
+static cmark_source_range source_range(text_cursor *cursor, bufsize_t start, bufsize_t end) {
+  cmark_source_range range = {0, 0, 0, 0};
+  if (end > start) {
+    source_position(cursor, start, &range.start_line, &range.start_column);
+    source_position(cursor, end - 1, &range.end_line, &range.end_column);
+  }
+  return range;
+}
+
+// Records where a definition read at `at` in the text is in the source, on the document.
+static void record_definition(cmark_parser *parser, text_cursor *cursor, bufsize_t at,
+                              cmark_reference_offsets *offsets) {
+  cmark_document *document = &parser->root->as.document;
+  if (document->count == document->capacity) {
+    document->capacity = document->capacity ? document->capacity * 2 : 8;
+    document->items = (cmark_reference_definition *)parser->mem->realloc(
+        document->items, document->capacity * sizeof(cmark_reference_definition));
+  }
+  cmark_reference_definition *definition = &document->items[document->count++];
+  definition->label = source_range(cursor, at + offsets->label_start, at + offsets->label_end);
+  definition->destination =
+      source_range(cursor, at + offsets->destination_start, at + offsets->destination_end);
+  definition->title = source_range(cursor, at + offsets->title_start, at + offsets->title_end);
+}
+
 // returns true if content remains after link defs are resolved.
 static bool resolve_reference_link_definitions(
 		cmark_parser *parser,
@@ -291,9 +343,13 @@ static bool resolve_reference_link_definitions(
   bufsize_t pos;
   cmark_strbuf *node_content = &b->content;
   cmark_chunk chunk = {node_content->ptr, node_content->size, 0};
+  cmark_reference_offsets offsets;
+  text_cursor cursor = {b, 0, 0, 0};
   while (chunk.len && chunk.data[0] == '[' &&
          (pos = cmark_parse_reference_inline(parser->mem, &chunk,
-					     parser->refmap))) {
+					     parser->refmap, &offsets))) {
+    if (parser->options & CMARK_OPT_SOURCEPOS)
+      record_definition(parser, &cursor, (bufsize_t)(chunk.data - node_content->ptr), &offsets);
 
     chunk.data += pos;
     chunk.len -= pos;

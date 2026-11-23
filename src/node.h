@@ -48,6 +48,15 @@ typedef struct {
   cmark_chunk on_exit;
 } cmark_custom;
 
+// A document's link reference definitions, in order, recorded as they are taken off
+// paragraphs (`resolve_reference_link_definitions` in blocks.c) when parsing with
+// CMARK_OPT_SOURCEPOS.
+typedef struct {
+  cmark_reference_definition *items;
+  size_t count;
+  size_t capacity;
+} cmark_document;
+
 enum cmark_node__internal_flags {
   CMARK_NODE__OPEN = (1 << 0),
   CMARK_NODE__LAST_LINE_BLANK = (1 << 1),
@@ -118,6 +127,7 @@ struct cmark_node {
     cmark_heading heading;
     cmark_link link;
     cmark_custom custom;
+    cmark_document document;
     int html_block_type;
     int cell_index; // For keeping track of TABLE_CELL table alignments
     void *opaque;
