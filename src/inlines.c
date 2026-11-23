@@ -304,6 +304,65 @@ static int count_newlines(subject *subj, bufsize_t from, bufsize_t len, int *sin
   return nls;
 }
 
+// Where the text at `offset` is in the source. `closer` is the offset of a `]` just read: it's
+// on the line being read, `subj->line`, and `offset` is on that line or near it.
+static void subject_position(subject *subj, bufsize_t closer, bufsize_t offset, int *line,
+                             int *column) {
+  int l = subj->line;
+  bufsize_t line_pos = line_start_shift(subj) - subj->column_offset;
+  bufsize_t i;
+  if (offset >= line_pos) {
+    for (i = closer; i < offset; i++) {
+      if (subj->input.data[i] == '\n') {
+        l++;
+        line_pos = i + 1;
+      }
+    }
+  } else {
+    // A text that ends with a line ending, before a `]` that starts its line.
+    for (i = line_pos - 2; i > offset; i--) {
+      if (subj->input.data[i] == '\n')
+        l--;
+    }
+    l--;
+    for (line_pos = offset; line_pos > 0 && subj->input.data[line_pos - 1] != '\n'; line_pos--)
+      ;
+  }
+  bufsize_t index = l - subj->block->start_line;
+  bufsize_t shift = index < subj->block->line_count
+                        ? subj->block->line_starts[index] - subj->block_offset
+                        : 0;
+  *line = l;
+  *column = offset - line_pos + 1 + subj->block_offset + shift;
+}
+
+// Records, on the document, the label looked up between `label_start` and `label_end`, for the
+// brackets that start with `opener` and end just before `subj->pos`, and the definition it
+// found.
+static void record_use(cmark_parser *parser, subject *subj, bracket *opener,
+                       bufsize_t closer, bufsize_t label_start, bufsize_t label_end,
+                       cmark_reference *ref) {
+  cmark_document *document = &parser->root->as.document;
+  if (document->use_count == document->use_capacity) {
+    document->use_capacity = document->use_capacity ? document->use_capacity * 2 : 8;
+    document->uses = (cmark_reference_use *)parser->mem->realloc(
+        document->uses, document->use_capacity * sizeof(cmark_reference_use));
+  }
+  cmark_reference_use *use = &document->uses[document->use_count++];
+  use->range.start_line = opener->inl_text->start_line;
+  use->range.start_column = opener->inl_text->start_column;
+  subject_position(subj, closer, subj->pos - 1, &use->range.end_line, &use->range.end_column);
+  if (label_start == opener->position) {
+    // The text's: it starts after the `[` or `![`, which may be on a line before.
+    use->label.start_line = opener->inl_text->start_line;
+    use->label.start_column = opener->inl_text->start_column + (opener->image ? 2 : 1);
+  } else {
+    subject_position(subj, closer, label_start, &use->label.start_line, &use->label.start_column);
+  }
+  subject_position(subj, closer, label_end - 1, &use->label.end_line, &use->label.end_column);
+  use->definition = ref ? (int)ref->entry.age : -1;
+}
+
 // Adjust `node`'s `end_line`, `end_column`, and `subj`'s `line` and
 // `column_offset` according to the number of newlines in a just-matched span
 // of text in `subj`.
@@ -1174,6 +1233,10 @@ static cmark_node *handle_close_bracket(cmark_parser *parser, subject *subj) {
   int found_label;
   cmark_node *tmp, *tmpnext;
   bool is_image;
+  // Whether a label was looked up, between `label_start` and `label_end`, to record when the
+  // brackets turn out to be a link or text, and not a footnote reference.
+  bool looked_up = false;
+  bufsize_t label_start = 0, label_end = 0;
 
   advance(subj); // advance past ]
   initial_pos = subj->pos;
@@ -1240,16 +1303,22 @@ static cmark_node *handle_close_bracket(cmark_parser *parser, subject *subj) {
     // to before the spacse we skipped.
     subj->pos = initial_pos;
   }
+  // Between the label's brackets: the second ones, until it's the text's.
+  label_start = initial_pos + 1;
+  label_end = subj->pos - 1;
 
   if ((!found_label || raw_label.len == 0) && !opener->bracket_after) {
     cmark_chunk_free(subj->mem, &raw_label);
     raw_label = cmark_chunk_dup(&subj->input, opener->position,
                                 initial_pos - opener->position - 1);
     found_label = true;
+    label_start = opener->position;
+    label_end = initial_pos - 1;
   }
 
   if (found_label) {
     ref = (cmark_reference *)cmark_map_lookup(subj->refmap, &raw_label);
+    looked_up = (parser->options & CMARK_OPT_SOURCEPOS) && raw_label.len > 0 && subj->block;
     cmark_chunk_free(subj->mem, &raw_label);
   }
 
@@ -1342,11 +1411,15 @@ noMatch:
     }
   }
 
+  if (looked_up)
+    record_use(parser, subj, opener, initial_pos - 1, label_start, label_end, NULL);
   pop_bracket(subj); // remove this opener from delimiter list
   subj->pos = initial_pos;
   return make_str(subj, subj->pos - 1, subj->pos - 1, cmark_chunk_literal("]"));
 
 match:
+  if (looked_up)
+    record_use(parser, subj, opener, initial_pos - 1, label_start, label_end, ref);
   inl = make_simple(subj->mem, is_image ? CMARK_NODE_IMAGE : CMARK_NODE_LINK);
   inl->as.link.url = url;
   inl->as.link.title = title;

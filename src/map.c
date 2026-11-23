@@ -71,6 +71,18 @@ static void sort_map(cmark_map *map) {
   map->size = last + 1;
 }
 
+// The entry that `entry`'s label finds: `entry`, or the first one with the same label. Unlike
+// `cmark_map_lookup`, it doesn't count towards the expansion limit.
+cmark_map_entry *cmark_map_find_first(cmark_map *map, cmark_map_entry *entry) {
+  cmark_map_entry **ref;
+
+  if (!map->sorted)
+    sort_map(map);
+
+  ref = (cmark_map_entry **)bsearch(entry->label, map->sorted, map->size, sizeof(cmark_map_entry *), refsearch);
+  return ref ? ref[0] : entry;
+}
+
 cmark_map_entry *cmark_map_lookup(cmark_map *map, cmark_chunk *label) {
   cmark_map_entry **ref = NULL;
   cmark_map_entry *r = NULL;

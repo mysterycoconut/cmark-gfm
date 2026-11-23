@@ -48,13 +48,18 @@ typedef struct {
   cmark_chunk on_exit;
 } cmark_custom;
 
-// A document's link reference definitions, in order, recorded as they are taken off
-// paragraphs (`resolve_reference_link_definitions` in blocks.c) when parsing with
-// CMARK_OPT_SOURCEPOS.
+// What a document records when parsing with CMARK_OPT_SOURCEPOS: its link reference
+// definitions, in order, as they are taken off paragraphs (`resolve_reference_link_definitions`
+// in blocks.c), and the labels looked up, as brackets close (`handle_close_bracket` in
+// inlines.c). The counts are 32 bits so that both lists fit in the space the node keeps for
+// a code block's: they don't make a node bigger.
 typedef struct {
   cmark_reference_definition *items;
-  size_t count;
-  size_t capacity;
+  cmark_reference_use *uses;
+  int32_t count;
+  int32_t capacity;
+  int32_t use_count;
+  int32_t use_capacity;
 } cmark_document;
 
 enum cmark_node__internal_flags {

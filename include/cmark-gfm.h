@@ -526,6 +526,9 @@ typedef struct cmark_reference_definition {
   cmark_source_range destination;
   /** As written, with its quotes or parentheses; all 0 when there is none. */
   cmark_source_range title;
+  /** The index of the definition its label finds: its own, or that of the
+   * first one with the same label when it's defined again. */
+  int original;
 } cmark_reference_definition;
 
 /** The link reference definitions of 'node', a document, in the order they
@@ -536,6 +539,33 @@ typedef struct cmark_reference_definition {
  */
 CMARK_GFM_EXPORT const cmark_reference_definition *
 cmark_node_get_reference_definitions(cmark_node *node, size_t *count);
+
+/** A label the parser looked up, for brackets that aren't an inline link: a
+ * reference link or image, or brackets that found no definition and stayed
+ * text.
+ */
+typedef struct cmark_reference_use {
+  /** From the first `[` (or `![`) to the last `]`, a label in its own
+   * brackets after the text included. */
+  cmark_source_range range;
+  /** The label looked up, between its brackets: the second ones for
+   * `[text][label]`, the text's for `[text][]` and `[text]`. */
+  cmark_source_range label;
+  /** The index of the definition it found, in
+   * `cmark_node_get_reference_definitions`; -1 when there is none. */
+  int definition;
+} cmark_reference_use;
+
+/** The labels looked up in 'node', a document, in the order they were looked
+ * up, which is the order their brackets close in, and sets 'count' to how many
+ * there are. A label that found nothing and is read again as brackets of its
+ * own, the `[label]` in `[text][label]`, is looked up again. Recorded only when
+ * the document is parsed with CMARK_OPT_SOURCEPOS, and only a document has
+ * any: otherwise returns NULL and sets 'count' to 0. Valid as long as the
+ * document is.
+ */
+CMARK_GFM_EXPORT const cmark_reference_use *
+cmark_node_get_reference_uses(cmark_node *node, size_t *count);
 
 /**
  * ## Tree Manipulation

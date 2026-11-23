@@ -171,6 +171,7 @@ static void free_node_as(cmark_node *node) {
       break;
     case CMARK_NODE_DOCUMENT:
     NODE_MEM(node)->free(node->as.document.items);
+    NODE_MEM(node)->free(node->as.document.uses);
       break;
     default:
       break;
@@ -836,6 +837,16 @@ cmark_node_get_reference_definitions(cmark_node *node, size_t *count) {
   }
   *count = node->as.document.count;
   return node->as.document.items;
+}
+
+const cmark_reference_use *
+cmark_node_get_reference_uses(cmark_node *node, size_t *count) {
+  if (node == NULL || node->type != CMARK_NODE_DOCUMENT || node->as.document.use_count == 0) {
+    *count = 0;
+    return NULL;
+  }
+  *count = node->as.document.use_count;
+  return node->as.document.uses;
 }
 
 // Unlink a node without adjusting its next, prev, and parent pointers.

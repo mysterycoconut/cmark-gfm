@@ -1193,6 +1193,96 @@ static void reference_definitions(test_batch_runner *runner) {
   cmark_node_free(doc);
 }
 
+// A use as `cmark_node_get_reference_uses` gives it, written like a sourcepos:
+// "range 1:1-1:3, label 1:2-1:2, definition 0".
+static void S_describe_use(const cmark_reference_use *u, char *out, size_t size) {
+  snprintf(out, size, "range %d:%d-%d:%d, label %d:%d-%d:%d, definition %d",
+           u->range.start_line, u->range.start_column, u->range.end_line, u->range.end_column,
+           u->label.start_line, u->label.start_column, u->label.end_line, u->label.end_column,
+           u->definition);
+}
+
+// Parses `markdown` and checks its uses against `expected`, `count` of them, in order.
+static void S_check_uses(test_batch_runner *runner, const char *markdown,
+                         const char **expected, size_t count) {
+  cmark_node *doc = cmark_parse_document(markdown, strlen(markdown),
+                                         CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
+  size_t found = 0;
+  const cmark_reference_use *uses = cmark_node_get_reference_uses(doc, &found);
+  INT_EQ(runner, (int)found, (int)count, "uses in %s", markdown);
+  for (size_t i = 0; i < found && i < count; i++) {
+    char got[160];
+    S_describe_use(&uses[i], got, sizeof(got));
+    STR_EQ(runner, got, expected[i], "use %d in %s", (int)i, markdown);
+  }
+  cmark_node_free(doc);
+}
+
+static void reference_uses(test_batch_runner *runner) {
+  // Shortcut, collapsed, full, one that finds nothing, an image, and a full one that finds
+  // nothing, whose label is then read again as a shortcut. None for an inline link, a code
+  // span, or escaped brackets.
+  static const char *kinds[] = {
+    "range 5:1-5:3, label 5:2-5:2, definition 0",
+    "range 5:5-5:9, label 5:6-5:6, definition 1",
+    "range 5:11-5:16, label 5:15-5:15, definition 0",
+    "range 5:18-5:23, label 5:19-5:22, definition -1",
+    "range 5:25-5:28, label 5:27-5:27, definition 0",
+    "range 5:30-5:38, label 5:34-5:37, definition -1",
+    "range 5:33-5:38, label 5:34-5:37, definition -1",
+  };
+  S_check_uses(runner,
+               "[a]: /u\n[b]: /v\n[A]: /w\n\n"
+               "[a] [b][] [x][a] [nope] ![a] [t][nope] [i](/i) `[c]` \\[e]\n",
+               kinds, 7);
+
+  // A label defined again finds the first definition: so does the definition.
+  static const char dup[] = "[a]: /u\n[b]: /v\n[A]: /w\n";
+  cmark_node *defined = cmark_parse_document(dup, sizeof(dup) - 1,
+                                             CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
+  size_t defs = 0;
+  const cmark_reference_definition *d = cmark_node_get_reference_definitions(defined, &defs);
+  OK(runner, defs == 3 && d[0].original == 0 && d[1].original == 1 && d[2].original == 0,
+     "a definition's original is the first with its label");
+  cmark_node_free(defined);
+
+  // Brackets in brackets: the inner ones, those in a link's text included, but not the outer
+  // ones as their own label, since a label can't hold brackets.
+  static const char *nested[] = {
+    "range 1:4-1:6, label 1:5-1:5, definition -1",
+    "range 1:14-1:16, label 1:15-1:15, definition -1",
+    "range 1:11-1:20, label 1:19-1:19, definition 0",
+  };
+  S_check_uses(runner, "[a [b] c] [d [e]][a]\n\n[a]: /a\n", nested, 3);
+
+  // Across lines in a block quote: a text, and a label after a text.
+  static const char *lines[] = {
+    "range 2:7-3:4, label 2:8-3:3, definition 0",
+    "range 3:10-4:4, label 3:14-4:3, definition 0",
+  };
+  S_check_uses(runner, "> [a b]: /a\n> see [a\n> b] and [x][a\n> b]\n", lines, 2);
+
+  // In a list item, on its second line.
+  static const char *listed[] = {
+    "range 1:7-1:9, label 1:8-1:8, definition 0",
+    "range 2:7-2:9, label 2:8-2:8, definition -1",
+  };
+  S_check_uses(runner, "- see [a]\n  and [b]\n\n[a]: /a\n", listed, 2);
+
+  // Not recorded without CMARK_OPT_SOURCEPOS, and only a document has any.
+  static const char markdown[] = "[h]\n\n[h]: /h\n";
+  cmark_node *doc = cmark_parse_document(markdown, sizeof(markdown) - 1, CMARK_OPT_DEFAULT);
+  size_t count = 1;
+  OK(runner, cmark_node_get_reference_uses(doc, &count) == NULL && count == 0,
+     "no uses without CMARK_OPT_SOURCEPOS");
+  cmark_node_free(doc);
+  doc = cmark_parse_document(markdown, sizeof(markdown) - 1, CMARK_OPT_DEFAULT | CMARK_OPT_SOURCEPOS);
+  count = 1;
+  OK(runner, cmark_node_get_reference_uses(cmark_node_first_child(doc), &count) == NULL && count == 0,
+     "no uses on a node that isn't a document");
+  cmark_node_free(doc);
+}
+
 int main() {
   int retval;
   test_batch_runner *runner = test_batch_runner_new();
@@ -1225,6 +1315,7 @@ int main() {
   source_pos_inlines(runner);
   ref_source_pos(runner);
   reference_definitions(runner);
+  reference_uses(runner);
 
   test_print_summary(runner);
   retval = test_ok(runner) ? 0 : 1;

@@ -329,7 +329,8 @@ static void record_definition(cmark_parser *parser, text_cursor *cursor, bufsize
     document->items = (cmark_reference_definition *)parser->mem->realloc(
         document->items, document->capacity * sizeof(cmark_reference_definition));
   }
-  cmark_reference_definition *definition = &document->items[document->count++];
+  cmark_reference_definition *definition = &document->items[document->count];
+  definition->original = document->count++;
   definition->label = source_range(cursor, at + offsets->label_start, at + offsets->label_end);
   definition->destination =
       source_range(cursor, at + offsets->destination_start, at + offsets->destination_end);
@@ -757,6 +758,15 @@ static cmark_node *finalize_document(cmark_parser *parser) {
     parser->refmap->max_ref_size = parser->total_size;
   else
     parser->refmap->max_ref_size = 100000;
+
+  // A label defined again: point its definition at the first, which is what lookups find. Each
+  // definition read made one reference in the map, so a reference's age is its definition's
+  // index.
+  cmark_document *document = &parser->root->as.document;
+  if (document->count > 0) {
+    for (cmark_map_entry *r = parser->refmap->refs; r; r = r->next)
+      document->items[r->age].original = (int)cmark_map_find_first(parser->refmap, r)->age;
+  }
 
   process_inlines(parser, parser->refmap, parser->options);
   if (parser->options & CMARK_OPT_FOOTNOTES)
