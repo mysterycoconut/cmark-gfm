@@ -2,6 +2,8 @@
 
 Fork of [github/cmark-gfm](https://github.com/github/cmark-gfm) at `0.29.0.gfm.13`, the latest release as of 2026 (from Jul 21, 2023).
 
+
+
 ## Why this fork exists
 
 Three reasons.
@@ -12,15 +14,19 @@ Three reasons.
 
 3. Records for editors. The parser finds things it keeps no node for, like link reference definitions, and an editor that has to find them again on its own can disagree with it. The fork records them on the document, without changing any output (see *Records for editors* below).
 
+
+
 ## Changes from 0.29.0.gfm.13
+
+In order of commit (with *[SHA]* signatures) within each category.
+
 
 ### Packaging
 
-- `Package.swift` and the layout changes SPM requires. *[1ff0c09088d40cd983419bda52284cf91c27fef5]*
+ - `Package.swift` and the layout changes SPM requires. *[1ff0c09088d40cd983419bda52284cf91c27fef5]*
+
 
 ### Backported source-position fixes
-
-In order of commit (with *[SHA]* signatures).
 
 - **Unmatched backtick runs** (`src/inlines.c`, `handle_backticks`) — reported `(pos, pos)` after rewinding, placing a run of *n* backticks as a single  column just past itself. Now reports the run's real span. *Example:* ` ```foo`` ` reported `(1,2)-(1,4)` for an eight-character literal. *[a88352ddca4f4b3c74b71291e568df1ce653c7b3]*
 
@@ -47,6 +53,7 @@ In order of commit (with *[SHA]* signatures).
 
 - **Ends of setext headings and fenced code** (`src/blocks.c`, `finalize` and `parse_code_block_prefix`) — `finalize` ended a setext heading or a fenced code block on the line it was finalized from, as if that were always the line that closed it. Only a closing fence closes a block on its own line. A setext heading is finalized from the line after its underline, and a fenced code block whose container ends it from the line after its last, so both reported that next line as their end: a heading overlapped the block after it, and a code block reached past its own block quote or list item. Now the closing fence sets the block's `end_line` to its own line, and both go through the check the HTML block fix added (`line_number - 1 < end_line`), which tells a block finalized on its last line from one finalized after it. Upstream cmark has the same code. Output is unchanged. *Example:* `Foo`, `---`, `bar` reported the heading at `1:1-3:3`; now `1:1-2:3`. `> ``` `, `> a`, `b` reported the code block at `1:3-3:1`, outside its quote's `1:1-2:3`; now `1:3-2:3`. *[5829b4d483b7d2867c59cff6fc93f8a35a586dca]*
 
+
 ### Fixes that change output
 
 - **Link reference definitions above a table header** (same change as above) — the paragraph copy never went through `finalize`, so link reference definitions at its start were never taken off: they rendered as text, and links using them didn't resolve. It also unescaped `\|` in the copy's text, which only cells need, so every column after one was a byte short (output unaffected, since `\|` in a paragraph is an escape either way). Both went with the copy. *Example:* `[ref]: /url` and `foo` above `| a |` rendered `<p>[ref]: /url\nfoo</p>`, and `[x][ref]` later in the document stayed text. *[8a566397be755d9086446fcfae2fd62c43bc0091]*
@@ -61,9 +68,11 @@ In order of commit (with *[SHA]* signatures).
 
 - **A list item whose only paragraph was a definition** (`src/blocks.c`, `finalize` and `parse_node_item_prefix`; `src/node.h`) — backported from upstream cmark `8c9c5e4`. A paragraph holding only definitions is removed when it closes, leaving its list item with no children, which `parse_node_item_prefix` took to mean the item opened on a blank line. A later blank line indented less than the item's content then ended the item, though a line indented enough after it still belonged to it. Now the item is marked when such a paragraph is removed (`CMARK_NODE__ITEM_HAD_CONTENT`), and kept open as an item with children is. Upstream's flag takes `1 << 4`; here `1 << 3` is free, and `CMARK_NODE__REGISTER_FIRST`, where extensions' flags start, moves to `1 << 4`. *Example:* `- [r]:x`, a blank line, ` `, `  l` rendered an empty item and `<p>l</p>` after the list; now `<li>l</li>`. *[21a7a87f4bd3328fa5021ef5e9e9be0ab849d85e]*
 
+
 ### Thread safety
 
 - **Extension characters kept per parser** (`src/inlines.c`, `src/inlines.h`, `src/blocks.c`, `src/parser.h`) — the characters an inline extension starts with (`~` for strikethrough, `:` and `w` for autolinks) were added to the file-level `SPECIAL_CHARS` and `SKIP_CHARS` tables at the start of every parse's inline phase and removed at its end (`cmark_manage_extensions_special_characters`, called from `process_inlines`). Two parsers running at once on different threads added and removed them under each other, so a parse could lose them partway through and miss strikethrough and autolinks. Now each parser holds its own two tables (`special_chars`, `skip_chars`) for its extensions' characters, and `SPECIAL_CHARS` holds only the characters inline parsing always stops at, as a constant. `subject_find_special_char`, `scan_delims` and `handle_delim` take the parser to read them. `cmark_manage_extensions_special_characters` keeps its public signature. Same idea as `swift-cmark`'s, smaller: it only adds the extensions' characters to the parser, so there's no copying of defaults and nothing to allocate. Output is unchanged for one parser at a time. *Example:* four threads each parsing `a ~~b~~ c www.example.com` 20,000 times gave the wrong HTML 23,759 times out of 80,000; now none. *[cf8bc06ad3f797003c211a565bc90fe81020a402]*
+
 
 ### Records for editors
 
@@ -71,11 +80,15 @@ Additions to the public API that give an editor what the parser finds and keeps 
 
 - **Link reference definitions** (`include/cmark-gfm.h`, `cmark_node_get_reference_definitions`, `cmark_reference_definition` and `cmark_source_range`; `src/blocks.c`, `resolve_reference_link_definitions`; `src/inlines.c`, `cmark_parse_reference_inline`; `src/node.h` and `src/node.c`) — a definition is taken off the start of its paragraph and leaves no node, so an editor that styles one, or points at a broken one, had to find it again itself, and could disagree with the parser: a definition in a block quote or list item, a definition-shaped line inside a code block or continuing a paragraph. Now the document holds every definition the parser took, in order, a label defined again included, with where its label, destination and title are, as `sourcepos` gives positions. `cmark_parse_reference_inline` reports where the parts are, and `resolve_reference_link_definitions` turns them into source positions with the paragraph's line starts (see *Columns on a block's later lines*) before taking the definitions off. They're kept on the document node (`as.document`) and freed with it. *Example:* `> [a]: /u` then `> [b]: /v` gives `a` at `1:4-1:4` with its destination at `1:8-1:9`, and `b` at `2:4-2:4`. *[731c66d6363f75f7c29cf48355701f366494456b]*
 
-- **Labels looked up, and the first definition of a label** (`include/cmark-gfm.h`, `cmark_node_get_reference_uses`, `cmark_reference_use`, and `original` in `cmark_reference_definition`; `src/inlines.c`, `handle_close_bracket`; `src/map.c`, `cmark_map_find_first`; `src/blocks.c`, `finalize_document`; `src/node.h` and `src/node.c`) — brackets that aren't an inline link are looked up as a reference, and whether they found a definition leaves no trace when they didn't: they become text, like any other `[`. An editor that wants to point at a reference link whose definition is missing, a definition nothing uses, or a label defined twice had to match labels itself, with the spec's case folding and whitespace rules, and could disagree with the parser. Now the document also holds every label the inline parser looked up, as its brackets close, with where the brackets and the label are and the index of the definition it found, or -1. A use is recorded once the brackets are a link or text, so a footnote reference isn't one. Each definition also holds the index of the definition its label finds, which is an earlier one when the label is defined again: a reference's `age` in the map is its definition's index, and `cmark_map_find_first` finds the first reference with a label without counting towards the expansion limit, as `cmark_map_lookup` would. The document node's counts are now 32 bits, so both lists fit in the space a code block's node already takes, and no node grows. *Example:* `[a] [x][b] [c]` with `[a]` and `[b]` defined gives `a` found at `1:1-1:3` with its label at `1:2-1:2`, `x` at `1:5-1:10` with its label `b` at `1:9-1:9`, and `c` at `1:12-1:14`, finding nothing. *[SHA]*
+- **Labels looked up, and the first definition of a label** (`include/cmark-gfm.h`, `cmark_node_get_reference_uses`, `cmark_reference_use`, and `original` in `cmark_reference_definition`; `src/inlines.c`, `handle_close_bracket`; `src/map.c`, `cmark_map_find_first`; `src/blocks.c`, `finalize_document`; `src/node.h` and `src/node.c`) — brackets that aren't an inline link are looked up as a reference, and whether they found a definition leaves no trace when they didn't: they become text, like any other `[`. An editor that wants to point at a reference link whose definition is missing, a definition nothing uses, or a label defined twice had to match labels itself, with the spec's case folding and whitespace rules, and could disagree with the parser. Now the document also holds every label the inline parser looked up, as its brackets close, with where the brackets and the label are and the index of the definition it found, or -1. A use is recorded once the brackets are a link or text, so a footnote reference isn't one. Each definition also holds the index of the definition its label finds, which is an earlier one when the label is defined again: a reference's `age` in the map is its definition's index, and `cmark_map_find_first` finds the first reference with a label without counting towards the expansion limit, as `cmark_map_lookup` would. The document node's counts are now 32 bits, so both lists fit in the space a code block's node already takes, and no node grows. *Example:* `[a] [x][b] [c]` with `[a]` and `[b]` defined gives `a` found at `1:1-1:3` with its label at `1:2-1:2`, `x` at `1:5-1:10` with its label `b` at `1:9-1:9`, and `c` at `1:12-1:14`, finding nothing. *[d39f29c29a40e6c94ac3a59617c93d67072ed8d2]*
+
+
 
 ## Not taken from swift-cmark
 
 `swift-cmark` carries feature work for `swift-markdown` that this fork deliberately omits: the `^[...]` attribute syntax and `CMARK_NODE_ATTRIBUTE`, `CMARK_OPT_PRESERVE_WHITESPACE`, `bracket_type` replacing `bool image`, and `node->backtick_count`. These change parsing behaviour or the public node structure. Its per-parser character tables were taken in a smaller form (see *Thread safety* above).
+
+
 
 ## Known divergences from the GFM spec
 
